@@ -5,10 +5,47 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as path from 'path';
+import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
+import * as budgets from 'aws-cdk-lib/aws-budgets';
+import * as dotenv from 'dotenv';
+dotenv.config();
 
 export class SmartReceiptsBackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
+
+    const alertEmail = process.env.ALERT_EMAIL;
+
+    if (!alertEmail) {
+      throw new Error('❌ ALERT_EMAIL not found in env');
+    }
+
+    // BUDGET
+    new budgets.CfnBudget(this, 'ProjectBudget', {
+      budget: {
+        budgetType: 'COST',
+        timeUnit: 'MONTHLY',
+        budgetLimit: {
+          amount: 0.5,
+          unit: 'USD',
+        },
+      },
+      notificationsWithSubscribers: [
+        {
+          notification: {
+            notificationType: 'ACTUAL',
+            comparisonOperator: 'GREATER_THAN',
+            threshold: 50,
+          },
+          subscribers: [
+            {
+              subscriptionType: 'EMAIL',
+              address: alertEmail,
+            },
+          ],
+        },
+      ],
+    });
 
     // DYNAMODB
     const table = new dynamodb.Table(this, 'ReceiptTable', {
@@ -52,6 +89,12 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
     // PERMISSIONS
     bucket.grantRead(processor);
     table.grantWriteData(processor);
+
+    // TRIGGERS
+    bucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED,
+      new s3n.LambdaDestination(processor),
+    );
 
     // OUTPUTS
     new cdk.CfnOutput(this, 'TableName', {
