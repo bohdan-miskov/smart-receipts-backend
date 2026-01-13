@@ -7,6 +7,7 @@ import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as path from 'path';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
@@ -89,6 +90,15 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
     // PERMISSIONS
     bucket.grantRead(processor);
     table.grantWriteData(processor);
+
+    // AI PERMISSIONS
+    processor.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['textract:AnalyzeDocument'],
+        resources: ['*'],
+      }),
+    );
 
     // TRIGGERS
     bucket.addEventNotification(
