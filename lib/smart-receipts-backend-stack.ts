@@ -8,6 +8,7 @@ import * as path from 'path';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
@@ -87,9 +88,22 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
     });
 
+    // API BACKEND
+    const apiHandler = new nodejs.NodejsFunction(this, 'ApiHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'handler',
+      entry: path.join(__dirname, '../src/lambda/api.ts'),
+      environment: {
+        TABLE_NAME: table.tableName,
+        BUCKET_NAME: bucket.bucketName,
+      },
+    });
+
     // PERMISSIONS
     bucket.grantRead(processor);
+    bucket.grantPut(apiHandler);
     table.grantWriteData(processor);
+    table.grantReadData(apiHandler);
 
     // AI PERMISSIONS
     processor.addToRolePolicy(
@@ -99,6 +113,16 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
         resources: ['*'],
       }),
     );
+
+    // REST API (Вхідні двері)
+    const api = new apigateway.LambdaRestApi(this, 'SmartReceiptsApi', {
+      handler: apiHandler,
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: apigateway.Cors.ALL_METHODS,
+      },
+      proxy: true, // Всі запити йдуть в одну лямбду
+    });
 
     // TRIGGERS
     bucket.addEventNotification(
@@ -113,5 +137,6 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });
     new cdk.CfnOutput(this, 'LambdaName', { value: processor.functionName });
+    new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });
   }
 }

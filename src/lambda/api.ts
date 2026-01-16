@@ -22,6 +22,10 @@ export const handler: APIGatewayProxyHandler = async (event) => {
   try {
     const { httpMethod, path } = event;
 
+    if (httpMethod === 'OPTIONS') {
+      return { statusCode: 200, headers, body: '' };
+    }
+
     if (httpMethod === 'GET' && path.endsWith('/receipts')) {
       const data = await docClient.send(
         new QueryCommand({
