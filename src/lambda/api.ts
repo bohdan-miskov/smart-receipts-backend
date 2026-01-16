@@ -1,6 +1,6 @@
-import { DynamoDBClient, ScanCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { APIGatewayProxyHandler } from 'aws-lambda';
 
@@ -20,26 +20,38 @@ export const handler: APIGatewayProxyHandler = async (event) => {
   };
 
   try {
-    const method = event.httpMethod;
+    const { httpMethod, path } = event;
 
-    if (method === 'GET') {
+    if (httpMethod === 'GET' && path.endsWith('/receipts')) {
       const data = await docClient.send(
-        new ScanCommand({
+        new QueryCommand({
           TableName: TABLE_NAME,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: {
+            ':pk': 'USER#demo',
+          },
           Limit: 20,
         }),
       );
+
+      const formattedItems = (data.Items ?? []).map((item) => ({
+        id: item.SK.replace('RECEIPT#', ''),
+        fileName: item.fileName,
+        detectedText: item.detectedText,
+        createdAt: item.createdAt,
+        status: item.status,
+      }));
 
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({
-          data: data.Items ?? [],
+          items: formattedItems ?? [],
         }),
       };
     }
 
-    if (method === 'POST') {
+    if (httpMethod === 'POST' && path.endsWith('/upload-url')) {
       const fileId = crypto.randomUUID();
       const key = `uploads/${fileId}.jpg`;
 
@@ -62,9 +74,9 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     }
 
     return {
-      statusCode: 400,
+      statusCode: 404,
       headers,
-      body: JSON.stringify({ message: 'Method not supported' }),
+      body: JSON.stringify({ message: 'Method not found' }),
     };
   } catch (error: unknown) {
     console.error(error);
@@ -75,7 +87,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       headers,
       body: JSON.stringify({
         message,
-        data: error,
+        error: error,
       }),
     };
   }
