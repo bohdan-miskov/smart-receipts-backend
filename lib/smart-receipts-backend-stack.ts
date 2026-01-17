@@ -11,6 +11,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
@@ -96,6 +97,40 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
     });
 
+    // COGNITO USER POOL (База користувачів)
+    const userPool = new cognito.UserPool(this, 'ReceiptUserPool', {
+      userPoolName: 'smart-receipts-users',
+      selfSignUpEnabled: true,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+
+      passwordPolicy: {
+        minLength: 8,
+        requireLowercase: true,
+        requireDigits: true,
+        requireUppercase: false,
+        requireSymbols: false,
+      },
+
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // CLIENT FOR FRONTEND
+    const userPoolClient = userPool.addClient('WebClient', {
+      userPoolClientName: 'web-client',
+      authFlows: {
+        userSrp: true,
+      },
+      generateSecret: false,
+    });
+
+    // API GATEWAY AUTHORIZER
+    const auth = new apigateway.CognitoUserPoolsAuthorizer(
+      this,
+      'ReceiptsAuthorizers',
+      { cognitoUserPools: [userPool] },
+    );
+
     // API BACKEND
     const apiHandler = new nodejs.NodejsFunction(this, 'ApiHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -161,6 +196,10 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
         allowMethods: apigateway.Cors.ALL_METHODS,
       },
       proxy: true, // Всі запити йдуть в одну лямбду
+      defaultMethodOptions: {
+        authorizationType: apigateway.AuthorizationType.COGNITO,
+        authorizer: auth,
+      },
     });
 
     // TRIGGERS
@@ -176,6 +215,10 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });
     new cdk.CfnOutput(this, 'LambdaName', { value: processor.functionName });
+    new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
+    new cdk.CfnOutput(this, 'UserPoolClientId', {
+      value: userPoolClient.userPoolClientId,
+    });
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });
     new cdk.CfnOutput(this, 'WebsiteBucketName', {
       value: websiteBucket.bucketName,
