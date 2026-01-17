@@ -127,8 +127,23 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
     processor.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
-        actions: ['textract:AnalyzeDocument'],
+        actions: [
+          'textract:AnalyzeDocument',
+          'aws-marketplace:ViewSubscriptions',
+          'aws-marketplace:Subscribe',
+        ],
         resources: ['*'],
+      }),
+    );
+
+    processor.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['bedrock:InvokeModel'],
+        resources: [
+          // Дозволяємо доступ до конкретної моделі в будь-якому регіоні
+          `arn:aws:bedrock:*::foundation-model/anthropic.claude-3-haiku-20240307-v1:0`,
+        ],
       }),
     );
 
