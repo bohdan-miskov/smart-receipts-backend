@@ -9,6 +9,8 @@ import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
@@ -99,6 +101,22 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
       },
     });
 
+    // Frontend
+    const websiteBucket = new s3.Bucket(this, 'WebsiteBucket', {
+      bucketName: `smart-receipts-web-${this.account}`,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+    });
+
+    const distribution = new cloudfront.Distribution(this, 'SiteDistribution', {
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(websiteBucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      },
+      defaultRootObject: 'index.html',
+    });
+
     // PERMISSIONS
     bucket.grantRead(processor);
     bucket.grantPut(apiHandler);
@@ -138,5 +156,16 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });
     new cdk.CfnOutput(this, 'LambdaName', { value: processor.functionName });
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });
+    new cdk.CfnOutput(this, 'WebsiteBucketName', {
+      value: websiteBucket.bucketName,
+    });
+
+    new cdk.CfnOutput(this, 'CloudFrontURL', {
+      value: distribution.distributionDomainName,
+    });
+
+    new cdk.CfnOutput(this, 'DistributionId', {
+      value: distribution.distributionId, // Потрібно для скидання кешу
+    });
   }
 }
