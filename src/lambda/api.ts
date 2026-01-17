@@ -3,6 +3,7 @@ import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { APIGatewayProxyHandler } from 'aws-lambda';
+import { ReceiptEntity } from '../types/schema';
 
 const s3 = new S3Client({});
 const db = new DynamoDBClient({});
@@ -38,13 +39,16 @@ export const handler: APIGatewayProxyHandler = async (event) => {
         }),
       );
 
-      const formattedItems = (data.Items ?? []).map((item) => ({
-        id: item.SK.replace('RECEIPT#', ''),
-        fileName: item.fileName,
-        detectedText: item.detectedText,
-        createdAt: item.createdAt,
-        status: item.status,
-      }));
+      const items = (data.Items ?? []) as unknown as ReceiptEntity[];
+
+      const formattedItems = items.map((item) => {
+        const { SK, PK, ...rest } = item;
+
+        return {
+          ...rest,
+          id: SK.replace('RECEIPT#', ''),
+        };
+      });
 
       return {
         statusCode: 200,
