@@ -2,7 +2,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { APIGatewayProxyHandler } from 'aws-lambda';
+import { APIGatewayProxyEvent, APIGatewayProxyHandler } from 'aws-lambda';
 import { ReceiptEntity } from '../types/schema';
 
 const s3 = new S3Client({});
@@ -12,19 +12,43 @@ const docClient = DynamoDBDocumentClient.from(db);
 const BUCKET_NAME = process.env.BUCKET_NAME!;
 const TABLE_NAME = process.env.TABLE_NAME!;
 
-export const handler: APIGatewayProxyHandler = async (event) => {
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'Get, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
+const HEADERS = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'Get, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
 
+const getUserId = (event: APIGatewayProxyEvent): string | undefined => {
+  const userId = event.requestContext.authorizer?.claims['sub'];
+
+  if (!userId) {
+    return;
+  }
+
+  return `USER#${userId}`;
+};
+
+const createUnAuthorizedResponse = (headers: Record<string, string>) => ({
+  statusCode: 401,
+  headers,
+  body: JSON.stringify({
+    message: 'Unauthorized: missing or invalid credentials',
+  }),
+});
+
+export const handler: APIGatewayProxyHandler = async (event) => {
   try {
     const { httpMethod, path } = event;
 
     if (httpMethod === 'OPTIONS') {
-      return { statusCode: 200, headers, body: '' };
+      return { statusCode: 200, headers: HEADERS, body: '' };
+    }
+
+    const PK = getUserId(event);
+
+    if (!PK) {
+      return createUnAuthorizedResponse(HEADERS);
     }
 
     if (httpMethod === 'GET' && path.endsWith('/receipts')) {
@@ -33,7 +57,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
           TableName: TABLE_NAME,
           KeyConditionExpression: 'PK = :pk',
           ExpressionAttributeValues: {
-            ':pk': 'USER#demo',
+            ':pk': PK,
           },
           Limit: 20,
         }),
@@ -52,7 +76,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
       return {
         statusCode: 200,
-        headers,
+        headers: HEADERS,
         body: JSON.stringify({
           items: formattedItems ?? [],
         }),
@@ -61,7 +85,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
     if (httpMethod === 'POST' && path.endsWith('/upload-url')) {
       const fileId = crypto.randomUUID();
-      const key = `uploads/${fileId}.jpg`;
+      const key = `uploads/${PK}/${fileId}.jpg`;
 
       const command = new PutObjectCommand({
         Bucket: BUCKET_NAME,
@@ -73,7 +97,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
       return {
         statusCode: 200,
-        headers,
+        headers: HEADERS,
         body: JSON.stringify({
           uploadUrl: uploadUrl,
           key: key,
@@ -83,7 +107,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
     return {
       statusCode: 404,
-      headers,
+      headers: HEADERS,
       body: JSON.stringify({ message: 'Method not found' }),
     };
   } catch (error: unknown) {
@@ -92,7 +116,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return {
       statusCode: 500,
-      headers,
+      headers: HEADERS,
       body: JSON.stringify({
         message,
         error: error,

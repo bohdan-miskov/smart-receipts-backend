@@ -46,6 +46,24 @@ export const handler = async (event: S3Event, context: Context) => {
 
   console.log(`Analyzing file: ${fileName} from bucket: ${bucketName}`);
 
+  const pathParts = fileName.split('/');
+
+  let userId;
+  let cleanFileName = fileName;
+  if (pathParts.length > 2) {
+    userId = pathParts[1];
+    cleanFileName = pathParts[pathParts.length - 1] ?? 'unknown';
+  }
+
+  if (!userId) {
+    return {
+      statusCode: 401,
+      body: JSON.stringify({
+        message: 'Unauthorized: missing or invalid credentials',
+      }),
+    };
+  }
+
   try {
     const textractCommand = new AnalyzeDocumentCommand({
       Document: {
@@ -108,18 +126,19 @@ export const handler = async (event: S3Event, context: Context) => {
     }
 
     // Створюю унікальнк id з назви і повної дати для унікальності
-    const receiptId = fileName.split('/').pop() || Date.now().toString();
+    const currentISODate = new Date().toISOString();
+    const receiptId = `${cleanFileName}_${currentISODate}`;
     const item: ReceiptEntity = {
-      PK: `USER#demo`,
+      PK: userId,
       SK: `RECEIPT#${receiptId}`,
       fileName: fileName,
       vendor: receiptData.vendor ?? 'Unknown',
       total: receiptData.total ?? 0,
       currency: receiptData.currency ?? 'USD',
-      date: receiptData.date ?? new Date().toISOString(),
+      date: receiptData.date ?? currentISODate,
       items: receiptData.items ?? [],
       rawText: detectedLines,
-      createdAt: new Date().toISOString(),
+      createdAt: currentISODate,
       status: status,
     };
 
