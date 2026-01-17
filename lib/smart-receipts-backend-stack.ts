@@ -64,6 +64,12 @@ export class SmartReceiptsBackendStack extends cdk.Stack {
     const bucket = new s3.Bucket(this, 'ReceiptBucket', {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+      lifecycleRules: [
+        {
+          expiration: cdk.Duration.days(7),
+          enabled: true,
+        },
+      ],
 
       cors: [
         {
