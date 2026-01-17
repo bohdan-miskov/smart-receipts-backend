@@ -45,13 +45,13 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       return { statusCode: 200, headers: HEADERS, body: '' };
     }
 
-    const PK = getUserId(event);
-
-    if (!PK) {
-      return createUnAuthorizedResponse(HEADERS);
-    }
-
     if (httpMethod === 'GET' && path.endsWith('/receipts')) {
+      const PK = getUserId(event);
+
+      if (!PK) {
+        return createUnAuthorizedResponse(HEADERS);
+      }
+
       const data = await docClient.send(
         new QueryCommand({
           TableName: TABLE_NAME,
@@ -84,6 +84,12 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     }
 
     if (httpMethod === 'POST' && path.endsWith('/upload-url')) {
+      const PK = getUserId(event);
+
+      if (!PK) {
+        return createUnAuthorizedResponse(HEADERS);
+      }
+
       const fileId = crypto.randomUUID();
       const key = `uploads/${PK}/${fileId}.jpg`;
 
