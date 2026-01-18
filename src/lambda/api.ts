@@ -4,6 +4,10 @@ import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { APIGatewayProxyEvent, APIGatewayProxyHandler } from 'aws-lambda';
 import { ReceiptEntity } from '../types/schema';
+import {
+  createResponse,
+  createUnAuthorizedResponse,
+} from '../utils/createResponse';
 
 const s3 = new S3Client({});
 const db = new DynamoDBClient({});
@@ -28,14 +32,6 @@ const getUserId = (event: APIGatewayProxyEvent): string | undefined => {
 
   return `USER#${userId}`;
 };
-
-const createUnAuthorizedResponse = (headers: Record<string, string>) => ({
-  statusCode: 401,
-  headers,
-  body: JSON.stringify({
-    message: 'Unauthorized: missing or invalid credentials',
-  }),
-});
 
 export const handler: APIGatewayProxyHandler = async (event) => {
   try {
@@ -74,13 +70,102 @@ export const handler: APIGatewayProxyHandler = async (event) => {
         };
       });
 
-      return {
-        statusCode: 200,
-        headers: HEADERS,
-        body: JSON.stringify({
+      return createResponse(
+        200,
+        {
           items: formattedItems ?? [],
+        },
+        HEADERS,
+      );
+    }
+
+    if (httpMethod === 'GET' && path.endsWith('/stats')) {
+      const PK = getUserId(event);
+
+      if (!PK) {
+        return createUnAuthorizedResponse(HEADERS);
+      }
+
+      const command = new QueryCommand({
+        TableName: TABLE_NAME,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: {
+          ':pk': PK,
+        },
+        ProjectionExpression: '#total, vendor, #date, currency',
+        ExpressionAttributeNames: { '#date': 'date', '#total': 'total' },
+      });
+
+      type ReceiptShortInfo = Pick<
+        ReceiptEntity,
+        'total' | 'vendor' | 'date' | 'currency'
+      >;
+
+      const response = await docClient.send(command);
+      const items = (response.Items || []) as ReceiptShortInfo[];
+
+      const currencyMap: Record<string, number> = {};
+      const monthlyData: Record<string, number> = {};
+      const vendorMap: Record<string, number> = {};
+
+      items.forEach((item) => {
+        const amount = Number(item.total) || 0;
+        const currency = item.currency;
+        const vendor = item.vendor || 'Unknown';
+
+        if (currency) {
+          if (currencyMap[currency]) {
+            currencyMap[currency] += amount;
+          } else {
+            currencyMap[currency] = amount;
+          }
+        }
+
+        const dateObj = new Date(item.date);
+        const monthKey = `${dateObj.getFullYear()}-${String(
+          dateObj.getMonth() + 1,
+        ).padStart(2, '0')}`;
+
+        if (monthlyData[monthKey]) {
+          monthlyData[monthKey] += amount;
+        } else {
+          monthlyData[monthKey] = amount;
+        }
+
+        if (vendorMap[vendor]) {
+          vendorMap[vendor] += amount;
+        } else vendorMap[vendor] = amount;
+      });
+
+      const currencyList = Object.entries(currencyMap).map(
+        ([code, amount]) => ({
+          code,
+          amount,
         }),
-      };
+      );
+
+      const chartData = Object.entries(monthlyData)
+        .map(([date, amount]) => ({ date, amount }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      const topVendors = Object.entries(vendorMap)
+        .map(([name, amount]) => ({
+          name,
+          amount,
+        }))
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 5);
+
+      return createResponse(
+        200,
+        {
+          currencyList,
+          receiptsCount: items.length,
+          topVendors,
+          chartData,
+        },
+        HEADERS,
+      );
     }
 
     if (httpMethod === 'POST' && path.endsWith('/upload-url')) {
@@ -101,32 +186,29 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
       const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
 
-      return {
-        statusCode: 200,
-        headers: HEADERS,
-        body: JSON.stringify({
+      return createResponse(
+        200,
+        {
           uploadUrl: uploadUrl,
           key: key,
-        }),
-      };
+        },
+        HEADERS,
+      );
     }
 
-    return {
-      statusCode: 404,
-      headers: HEADERS,
-      body: JSON.stringify({ message: 'Method not found' }),
-    };
+    return createResponse(404, { message: 'Method not found' }, HEADERS);
   } catch (error: unknown) {
     console.error(error);
 
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      statusCode: 500,
-      headers: HEADERS,
-      body: JSON.stringify({
+
+    return createResponse(
+      500,
+      {
         message,
         error: error,
-      }),
-    };
+      },
+      HEADERS,
+    );
   }
 };
