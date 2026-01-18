@@ -14,6 +14,10 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
+import {
+  createResponse,
+  createUnAuthorizedResponse,
+} from '../utils/createResponse';
 
 const textractClient = new TextractClient({});
 const bedrockClient = new BedrockRuntimeClient({});
@@ -56,12 +60,7 @@ export const handler = async (event: S3Event, context: Context) => {
   }
 
   if (!userId) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({
-        message: 'Unauthorized: missing or invalid credentials',
-      }),
-    };
+    return createUnAuthorizedResponse();
   }
 
   try {
@@ -151,19 +150,13 @@ export const handler = async (event: S3Event, context: Context) => {
 
     console.log('Successfully saved to DynamoDB');
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        message: 'Success',
-      }),
-    };
+    return createResponse(200, {
+      message: 'Success',
+    });
   } catch (error: unknown) {
     console.error('Error processing receipt:', error);
 
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message }),
-    };
+    return createResponse(500, { message });
   }
 };
