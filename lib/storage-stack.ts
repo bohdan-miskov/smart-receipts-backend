@@ -36,8 +36,6 @@ export class StorageStack extends cdk.Stack {
     });
 
     this.websiteBucket = new s3.Bucket(this, 'WebsiteBucket', {
-      //FIXME - bucketname
-      bucketName: `smart-receipts-web-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
