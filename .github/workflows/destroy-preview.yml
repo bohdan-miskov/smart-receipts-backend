@@ -1,16 +1,16 @@
-name: Deploy Backend (Prod)
+name: Destroy Backend (Preview Environment)
 
 on:
-  push:
-    branches: [main]
+  delete:
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  deploy:
-    name: Deploy to Production
+  destroy-preview:
+    name: Destroy Feature Preview
+    if: startsWith(github.event.ref, 'feature/')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -20,6 +20,7 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -28,13 +29,16 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: 'arn:aws:iam::${{secrets.AWS_ACCOUNT_ID}}:role/GitHubDeployRole'
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{secrets.AWS_REGION}}
 
       - name: Install AWS CDK
         run: npm install -g aws-cdk
 
-      - name: CDK Deploy (Prod)
-        run: cdk deploy --all --require-approval never
+      - name: Extract branch name for ENV
+        id: branch-name
+        run: echo "CLEAN_NAME=$(echo '${{github.event.ref}}' | sed 's/\//-/g')" >> $GITHUB_ENV
+
+      - name: CDK Destroy (Cleanup)
+        run: cdk destroy --all --force
         env:
-          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
-          APP_ENV: prod
+          APP_ENV: ${{env.CLEAN_NAME}}
