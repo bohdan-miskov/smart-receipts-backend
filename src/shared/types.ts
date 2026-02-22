@@ -15,7 +15,9 @@ export type ReceiptEntity = {
   items: string[];
   createdAt: string;
   status: ReceiptStatus;
-  rawText?: string;
+    rawText?: string;
+    s3Path?: string;
+    tags?: string[];
 };
 
 export type ReceiptAIResponse = Pick<
