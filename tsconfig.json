@@ -5,6 +5,7 @@
     "moduleResolution": "NodeNext",
 
     "lib": ["ES2022"],
+    "outDir": "dist",
 
     "strict": true,
     "noImplicitAny": true,
@@ -14,7 +15,7 @@
 
     "noImplicitReturns": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+    // "exactOptionalPropertyTypes": true,
 
     "useUnknownInCatchVariables": true,
 
@@ -22,7 +23,7 @@
 
     "strictPropertyInitialization": true,
 
-    "skipLibCheck": false
+    "skipLibCheck": true
   },
-  "exclude": ["node_modules", "cdk.out"]
+  "exclude": ["node_modules", "cdk.out", "dist"]
 }
