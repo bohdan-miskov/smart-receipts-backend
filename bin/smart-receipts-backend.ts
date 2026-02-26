@@ -1,20 +1,45 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib/core';
-import { SmartReceiptsBackendStack } from '../lib/smart-receipts-backend-stack';
+import { DatabaseStack } from '../lib/database-stack';
+import { StorageStack } from '../lib/storage-stack';
+import { AuthStack } from '../lib/auth-stack';
+import { ApiStack } from '../lib/api-stack';
+import * as dotenv from 'dotenv';
+import { OidcStack } from '../lib/oidc-stack';
+import { BillingStack } from '../lib/billing-stack';
+dotenv.config();
 
 const app = new cdk.App();
-new SmartReceiptsBackendStack(app, 'SmartReceiptsBackendStack', {
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
 
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+const envName = process.env.APP_ENV || 'dev';
 
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
+const env = {
+  account: process.env.CDK_DEFAULT_ACCOUNT as string,
+  region: process.env.CDK_DEFAULT_REGION as string,
+};
 
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
+const dbStack = new DatabaseStack(app, `SmartReceiptDbStack-${envName}`, {
+  env: env,
 });
+const storageStack = new StorageStack(
+  app,
+  `SmartReceiptStorageStack-${envName}`,
+  { env },
+);
+const authStack = new AuthStack(app, `SmartReceiptsAuthStack-${envName}`, {
+  env,
+});
+
+new ApiStack(app, `SmartReceiptsBackendStack-${envName}`, {
+  env,
+  dbStack,
+  storageStack,
+  authStack,
+});
+
+new OidcStack(app, `SmartReceiptsOidcStack`, { env });
+
+new BillingStack(app, 'SmartReceiptsBillingStack', { env });
+
+cdk.Tags.of(app).add('Environment', envName);
+cdk.Tags.of(app).add('Project', 'SmartReceipts');
