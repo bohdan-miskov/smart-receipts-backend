@@ -39,6 +39,6 @@ jobs:
         run: echo "CLEAN_NAME=$(echo '${{github.event.ref}}' | sed 's/\//-/g')" >> $GITHUB_ENV
 
       - name: CDK Destroy (Cleanup)
-        run: cdk destroy --all --force
+        run: cdk destroy "*-${{env.CLEAN_NAME}}" --force
         env:
           APP_ENV: ${{env.CLEAN_NAME}}
