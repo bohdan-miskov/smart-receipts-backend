@@ -1,41 +1,96 @@
 import { APIGatewayProxyHandler } from 'aws-lambda';
 import {
   createResponse,
+  createServerErrorResponse,
   createUnAuthorizedResponse,
 } from '../../../utils/createResponse';
-import { QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand, QueryCommandInput } from '@aws-sdk/lib-dynamodb';
 import { docClient } from '../../../shared/aws-clients';
 import { ReceiptEntity } from '../../../shared/types';
+import { getUserId } from '../../../utils/getUserId';
+import { RECEIPT_SK_PREFIX } from '../../../shared/constants';
 
 const TABLE_NAME = process.env.TABLE_NAME!;
 
 export const handler: APIGatewayProxyHandler = async (event) => {
-  const userId = event.requestContext.authorizer?.claims['sub'];
-  if (!userId) return createUnAuthorizedResponse();
+  const pk = getUserId(event);
+  if (!pk) return createUnAuthorizedResponse();
 
-  const pk = `USER#${userId}`;
+  const category = event.queryStringParameters?.category;
+  const search = event.queryStringParameters?.search;
 
   try {
-    const command = new QueryCommand({
+    const cursor = event.queryStringParameters?.cursor;
+
+    let exclusiveStartKey = undefined;
+
+    if (cursor) {
+      try {
+        const decodedString = Buffer.from(cursor, 'base64').toString('utf-8');
+        exclusiveStartKey = JSON.parse(decodedString);
+      } catch {
+        return createResponse(400, 'Invalid cursor format');
+      }
+    }
+
+    let filterExpression: string[] = [];
+    let expressionAttributeValues: Record<string, any> = {
+      ':pk': pk,
+      ':skPrefix': RECEIPT_SK_PREFIX,
+    };
+    let expressionAttributeNames: Record<string, string> = {};
+
+    if (category) {
+      filterExpression.push('#category = :category');
+      expressionAttributeValues[':category'] = category;
+      expressionAttributeNames['#category'] = 'category';
+    }
+
+    if (search) {
+      filterExpression.push(
+        '(contains(#vendor, :search) OR contains(#tags, :search))',
+      );
+      expressionAttributeValues[':search'] = search;
+      expressionAttributeNames['#vendor'] = 'vendor';
+      expressionAttributeNames['#tags'] = 'tags';
+    }
+
+    const commandInput: QueryCommandInput = {
       TableName: TABLE_NAME,
-      KeyConditionExpression: 'PK = :pk',
-      ExpressionAttributeValues: { ':pk': pk },
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
+      ExpressionAttributeValues: expressionAttributeValues,
       Limit: 20,
       ScanIndexForward: false,
-    });
+      ExclusiveStartKey: exclusiveStartKey,
+    };
 
-    const result = await docClient.send(command);
+    if (filterExpression.length > 0) {
+      commandInput.FilterExpression = filterExpression.join(' AND ');
+      commandInput.ExpressionAttributeNames = expressionAttributeNames;
+    }
+
+    const result = await docClient.send(new QueryCommand(commandInput));
     const items = (result.Items ?? []) as ReceiptEntity[];
 
-    const formatted = items.map((item) => ({
-      ...item,
-      id: item.SK.replace('RECEIPT#', ''),
-    }));
+    const formatted = items.map((item) => {
+      const { PK, SK, ...rest } = item;
+      return rest;
+    });
 
-    return createResponse(200, { items: formatted });
+    let nextCursor = null;
+    if (result.LastEvaluatedKey) {
+      nextCursor = Buffer.from(
+        JSON.stringify(result.LastEvaluatedKey),
+      ).toString('base64');
+    }
+
+    return createResponse(200, 'Receipts found successfully', {
+      items: formatted,
+      count: formatted.length,
+      nextCursor,
+    });
   } catch (error) {
     console.error(error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return createResponse(500, { message });
+    return createServerErrorResponse(error);
   }
 };
