@@ -2,22 +2,22 @@ import { APIGatewayProxyHandler } from 'aws-lambda';
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import {
   createResponse,
+  createServerErrorResponse,
   createUnAuthorizedResponse,
 } from '../../../utils/createResponse';
 import { ReceiptEntity } from '../../../shared/types';
 import { docClient } from '../../../shared/aws-clients';
+import { getUserId } from '../../../utils/getUserId';
 
 const TABLE_NAME = process.env.TABLE_NAME!;
 
 export const handler: APIGatewayProxyHandler = async (event) => {
   try {
-    const userId = event.requestContext.authorizer?.claims['sub'];
+    const PK = getUserId(event);
 
-    if (!userId) {
+    if (!PK) {
       return createUnAuthorizedResponse();
     }
-
-    const PK = `USER#${userId}`;
 
     const command = new QueryCommand({
       TableName: TABLE_NAME,
@@ -87,7 +87,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 5);
 
-    return createResponse(200, {
+    return createResponse(200, 'Stats generated successfully', {
       currencyList,
       receiptsCount: items.length,
       topVendors,
@@ -95,7 +95,6 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     });
   } catch (error: unknown) {
     console.error(error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return createResponse(500, { message });
+    return createServerErrorResponse(error);
   }
 };
