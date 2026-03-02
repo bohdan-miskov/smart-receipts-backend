@@ -8,18 +8,12 @@ export class OidcStack extends cdk.Stack {
 
     const githubDomain = 'token.actions.githubusercontent.com';
 
-    const githubProvider = new iam.OpenIdConnectProvider(
-      this,
-      'GitHubProvider',
-      {
-        url: `https://${githubDomain}`,
-        clientIds: ['sts.amazonaws.com'],
-        thumbprints: [
-          '6938fd4d98bab03faadb97b34396831e3780aea1',
-          '1c58a3a8518e8759bf075b76b750d4f2df264fcd',
-        ],
-      },
-    );
+    const githubProvider =
+      iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(
+        this,
+        'ImportedGitHubProvider',
+        `arn:aws:iam::${this.account}:oidc-provider/${githubDomain}`,
+      );
 
     const githubRole = new iam.Role(this, 'GitHubActionsRole', {
       roleName: 'GitHubDeployRole',
