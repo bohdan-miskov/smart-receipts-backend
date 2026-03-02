@@ -53,6 +53,7 @@ export class ApiStack extends cdk.Stack {
     // uploadBucket.addEventNotification(
     //   cdk.aws_s3.EventType.OBJECT_CREATED,
     //   new s3n.LambdaDestination(processorLambda),
+    //   { prefix: 'uploads/' },
     // );
 
     const importedBucket = cdk.aws_s3.Bucket.fromBucketAttributes(
@@ -67,15 +68,76 @@ export class ApiStack extends cdk.Stack {
     importedBucket.addEventNotification(
       cdk.aws_s3.EventType.OBJECT_CREATED,
       new s3n.LambdaDestination(processorLambda),
+      { prefix: 'uploads/' },
     );
 
     table.grantWriteData(processorLambda);
 
     processorLambda.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ['textract:AnalyzeDocument', 'bedrock:InvokeModel'],
+        actions: [
+          'textract:AnalyzeDocument',
+          'bedrock:InvokeModel',
+          'rekognition:DetectLabels',
+          'translate:TranslateText',
+        ],
         resources: ['*'],
       }),
+    );
+
+    const startTranscriptionLambda = new nodejs.NodejsFunction(
+      this,
+      'StartTranscriptionWorker',
+      {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(
+          __dirname,
+          '../src/lambda/workers/start-transcription/index.ts',
+        ),
+        environment: commonEnv,
+      },
+    );
+    uploadBucket.grantRead(startTranscriptionLambda);
+    startTranscriptionLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['transcribe:StartTranscriptionJob'],
+        resources: ['*'],
+      }),
+    );
+
+    importedBucket.addEventNotification(
+      cdk.aws_s3.EventType.OBJECT_CREATED,
+      new s3n.LambdaDestination(startTranscriptionLambda),
+      { prefix: 'audio/' },
+    );
+
+    const saveTranscriptionLambda = new nodejs.NodejsFunction(
+      this,
+      'SaveTranscriptionWorker',
+      {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(
+          __dirname,
+          '../src/lambda/workers/save-transcription/index.ts',
+        ),
+        environment: commonEnv,
+      },
+    );
+
+    uploadBucket.grantRead(saveTranscriptionLambda);
+    table.grantWriteData(saveTranscriptionLambda);
+
+    saveTranscriptionLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['comprehend:DetectSentiment', 'comprehend:DetectEntities'],
+        resources: ['*'],
+      }),
+    );
+
+    importedBucket.addEventNotification(
+      cdk.aws_s3.EventType.OBJECT_CREATED,
+      new s3n.LambdaDestination(saveTranscriptionLambda),
+      { prefix: 'transcripts/', suffix: '.json' },
     );
 
     // API ENDPOINTS (REST API)
@@ -112,6 +174,56 @@ export class ApiStack extends cdk.Stack {
     });
     table.grantReadData(getStatsLambda);
 
+    const updateReceiptLambda = new nodejs.NodejsFunction(
+      this,
+      'UpdateReceiptHandler',
+      {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(
+          __dirname,
+          '../src/lambda/api/update-receipt/index.ts',
+        ),
+        environment: commonEnv,
+      },
+    );
+    table.grantWriteData(updateReceiptLambda);
+
+    const deleteReceiptLambda = new nodejs.NodejsFunction(
+      this,
+      'DeleteReceiptHandler',
+      {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(
+          __dirname,
+          '../src/lambda/api/delete-receipt/index.ts',
+        ),
+        environment: commonEnv,
+      },
+    );
+    table.grantWriteData(deleteReceiptLambda);
+    uploadBucket.grantDelete(deleteReceiptLambda);
+
+    const getReceiptImageLambda = new nodejs.NodejsFunction(
+      this,
+      'GetReceiptImageHandler',
+      {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(
+          __dirname,
+          '../src/lambda/api/get-receipt-image/index.ts',
+        ),
+        environment: commonEnv,
+      },
+    );
+    uploadBucket.grantRead(getReceiptImageLambda);
+
+    const profileLambda = new nodejs.NodejsFunction(this, 'ProfileHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../src/lambda/api/profile/index.ts'),
+      environment: commonEnv,
+    });
+    table.grantReadWriteData(profileLambda);
+
     const authorizer = new apigateway.CognitoUserPoolsAuthorizer(
       this,
       'ApiAuthorizer',
@@ -138,6 +250,25 @@ export class ApiStack extends cdk.Stack {
       { authorizer },
     );
 
+    const singleReceiptResource = receiptsResource.addResource('{id}');
+    singleReceiptResource.addMethod(
+      'PATCH',
+      new apigateway.LambdaIntegration(updateReceiptLambda),
+      { authorizer },
+    );
+    singleReceiptResource.addMethod(
+      'DELETE',
+      new apigateway.LambdaIntegration(deleteReceiptLambda),
+      { authorizer },
+    );
+
+    const imageResource = singleReceiptResource.addResource('image');
+    imageResource.addMethod(
+      'GET',
+      new apigateway.LambdaIntegration(getReceiptImageLambda),
+      { authorizer },
+    );
+
     const statsResource = api.root.addResource('stats');
     statsResource.addMethod(
       'GET',
@@ -149,6 +280,18 @@ export class ApiStack extends cdk.Stack {
     uploadUrlResource.addMethod(
       'POST',
       new apigateway.LambdaIntegration(uploadUrlLambda),
+      { authorizer },
+    );
+
+    const profileResource = api.root.addResource('profile');
+    profileResource.addMethod(
+      'GET',
+      new apigateway.LambdaIntegration(profileLambda),
+      { authorizer },
+    );
+    profileResource.addMethod(
+      'PUT',
+      new apigateway.LambdaIntegration(profileLambda),
       { authorizer },
     );
 
