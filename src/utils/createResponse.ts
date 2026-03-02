@@ -1,8 +1,13 @@
 export const createResponse = (
   code: number,
-  body: object,
+  message?: string,
+  data?: object,
   headers?: Record<string, string>,
 ) => {
+  const body = {
+    message,
+    data,
+  };
   return {
     statusCode: code,
     headers,
@@ -13,14 +18,9 @@ export const createResponse = (
 export const createServerErrorResponse = (error: any) => {
   console.error(error);
   const message = error instanceof Error ? error.message : 'Unknown error';
-  return createResponse(500, { message });
+  const data = typeof error === 'object' ? error : {};
+  return createResponse(500, message, data);
 };
 
 export const createUnAuthorizedResponse = (headers?: Record<string, string>) =>
-  createResponse(
-    401,
-    {
-      message: 'Unauthorized: missing or invalid credentials',
-    },
-    headers,
-  );
+  createResponse(401, 'Unauthorized: missing or invalid credentials');
