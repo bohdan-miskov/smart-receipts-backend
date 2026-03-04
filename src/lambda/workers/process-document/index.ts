@@ -41,6 +41,7 @@ const PARSER_SYSTEM_PROMPT = `Analyze the text extracted from this receipt.
         "currency": "Standard 3-letter currency code (e.g., UAH, USD, EUR)",
         "category": "Classify the expense into exactly ONE of these categories: ${CATEGORY_VALUES.join(', ')}",
         "detectedLanguage": The ISO 639-1 two-letter code of the primary language on the receipt (e.g., 'uk' for Ukrainian, 'pl' for Polish, 'en' for English).
+        "items": "Array of strings, list of purchased items with amount"
       }
       Important rules:
       - The "total" must be a number, not a string.
