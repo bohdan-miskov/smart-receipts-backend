@@ -71,7 +71,7 @@ export class ApiStack extends cdk.Stack {
       { prefix: 'uploads/' },
     );
 
-    table.grantWriteData(processorLambda);
+    table.grantReadWriteData(processorLambda);
 
     processorLambda.addToRolePolicy(
       new iam.PolicyStatement({
